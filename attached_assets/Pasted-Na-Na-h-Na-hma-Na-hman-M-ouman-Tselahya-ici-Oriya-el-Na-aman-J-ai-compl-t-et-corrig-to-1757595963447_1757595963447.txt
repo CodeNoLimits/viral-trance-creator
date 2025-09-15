@@ -1,0 +1,152 @@
+Na Na’h Na’hma Na’hman Méouman.
+
+Tselahya, ici **Oriya'el Na'aman**. J’ai **complété et corrigé** ton plan Replit pour qu’il soit **réaliste, économique** et directement exécutable. Tu peux **copier-coller** le bloc “PLAN POUR REPLIT (à coller)” tel quel dans l’agent.
+
+---
+
+# Corrections essentielles (pour éviter de payer pour rien)
+
+1. **Uploads “directs” vers plateformes — réalités 2025**
+
+   * **Spotify** : **pas d’API d’upload public**. On doit passer par un **distributeur** (DistroKid, Soundrop, etc.). Notre app générera un **bundle export (audio+cover+metadata)** + **lien** vers le distributeur et/ou un **fichier DDEX** si besoin. ([community.spotify.com][1])
+   * **YouTube** : upload **possible via API** (OAuth), mais **coûte 1600 unités de quota** par upload. On l’intègre avec parcimonie + file d’attente. ([Google for Developers][2])
+   * **SoundCloud** : upload **possible via API** (OAuth). **Changement 2025** : basculer du champ `id` vers `urn` côté API. ([developers.soundcloud.com][3])
+   * **Suno** : pas une plateforme d’upload ; c’est le **générateur**. Pour **monétiser/distribuer**, tes morceaux doivent être créés sous **Suno Pro/Premier** puis **distribués via un distributeur** (pas “upload Spotify direct”). ([help.suno.com][4])
+
+2. **Sources de tendances**
+
+   * **Shazam** : on peut **télécharger le CSV officiel** du Top 200/Viral (par pays/monde). Stable et économique. ([Shazam][5])
+   * **Beatport** : pas d’API publique officielle documentée pour les charts — on fera **collecte légère** (pages publiques), ou saisie manuelle des Top 100 Trance si le scraping devient coûteux/risqué. ([beatport.com][6])
+   * **Spotify Web API** : métadonnées + audio features, mais **politiques changeantes** ; garde le connecteur **désactivable**. ([developer.spotify.com][7])
+
+3. **Anti-risque**
+
+   * **Fraude/streams artificiels** : l’industrie serre la vis (ex. cas récents, détection des modèles Suno/Udio chez certains acteurs). On focus **contenu authentique** + hooks organiques, pas de bots. ([The Guardian][8])
+
+---
+
+# PLAN POUR REPLIT (à coller)
+
+**Titre** : Viral Trance Creator — MVP réaliste & éco
+
+**Objectif MVP (4–6 semaines)**
+
+1. **Radar** : agrège Shazam CSV + YouTube (métriques publiques/SEO) + Beatport (collecte légère) pour un **score Momentum** simple et interprétable.
+2. **Prompts Suno** : générateur par style (Uplift 138 / Tech 142 / Prog 128 / Hard 150) + **Spirit Mode**.
+3. **Hooks** : marquage 10–14s (manuel dans MVP, auto plus tard).
+4. **Pochette** : bouton **Generate Cover** via **APIG menu** (clé déjà en secret).
+5. **Publish** :
+
+   * **YouTube** : **upload API** optionnel (file d’attente + contrôle de quota). ([Google for Developers][2])
+   * **Spotify/Apple** : **export bundle** (audio, cover 3000×3000, metadata JSON + lyrics) **+ liens distributeur** (pas d’upload direct). ([Pitchfork][9])
+   * **SoundCloud** : upload API (OAuth) **si activé**. **Utiliser `urn`**. ([developers.soundcloud.com][3])
+
+**Non-objectifs (v1)**
+
+* Pas d’“auto-upload Spotify”.
+* Pas d’aspiration massive Beatport.
+* Pas de “trending TikTok” (pas d’endpoint public fiable).
+
+**Stack**
+
+* Backend : Python FastAPI **ou** Node (au choix de Replit)
+* DB : Postgres managé Replit
+* Jobs : cron Replit (collecte quotidienne Shazam/Beatport ; YouTube selon quota)
+* Front : simple app (table + fiches) **ou** intégration des écrans Stitch exportés
+
+**Secrets à créer**
+
+* `APIG_MENU_KEY`, `APIG_MENU_BASE_URL` (covers)
+* `YOUTUBE_API_KEY` + OAuth client (upload) ([Google for Developers][2])
+* `SOUNDCLOUD_CLIENT_ID` / `SOUNDCLOUD_CLIENT_SECRET` (upload) + **migration `urn`** ([developers.soundcloud.com][3])
+* (Option) `SPOTIFY_CLIENT_ID/SECRET` (features + popularity) — **toggle OFF** possible. ([developer.spotify.com][7])
+
+**Fonctions à livrer**
+
+1. **Collector Shazam**
+
+   * Télécharge CSV **Top 200** + **Viral** (Global + pays choisi) 1×/jour.
+   * Stocke `rank, title, artist, date, region`. ([Shazam][5])
+2. **Collector Beatport (léger)**
+
+   * Récupère **Top 100 Trance** 1×/jour (user-agent & délais).
+3. **(Option) Spotify Features**
+
+   * Cherche par titre+artiste → récupère BPM/key/energy/danceability si disponible. ([developer.spotify.com][7])
+4. **Scoring**
+
+   * `S = w1·Z(Δrank_Shazam_7j) + w2·Presence(BP/YT/SP) + w3·Freshness` (simple, pas de magie).
+   * **Gate Trance** : BPM 135–150 **ou** tag Beatport Trance.
+5. **Prompts Suno**
+
+   * 4 templates fixés + Spirit Mode + variables {bpm,key,lead}.
+6. **Covers (APIG)**
+
+   * POST vers `APIG_MENU_BASE_URL` avec prompt “Neon”/“Ethereal” → stocke `cover_url`.
+7. **Publish**
+
+   * **YouTube** : endpoint `/publish/youtube` (OAuth auteur, quota guard). ([Google for Developers][10])
+   * **SoundCloud** : endpoint `/publish/soundcloud` (OAuth auteur, note `urn`). ([developers.soundcloud.com][3])
+   * **Spotify/Apple** : bouton **“Open Distributor”** + **Export Bundle** (zip) :
+     `audio.wav`, `cover.png(3000x3000)`, `metadata.json`, `lyrics.lrc`, `notes.txt`. (Pas d’upload direct Spotify). ([Pitchfork][9])
+
+**Endpoints REST (MVP)**
+
+* `GET /radar?window=7d&region=global`
+* `GET /tracks/{id}` (features, prompts, score)
+* `POST /tracks/{id}/prompts` (génère 3 variantes)
+* `POST /tracks/{id}/cover` (APIG)
+* `POST /publish/youtube` (upload; garde-fou quota) ([Google for Developers][10])
+* `POST /publish/soundcloud` (upload; gère `urn`) ([developers.soundcloud.com][3])
+* `GET /export/{id}/bundle.zip` (distributeurs)
+
+**Toggles & coûts**
+
+* `COLLECTOR_SPOTIFY=on/off` (API sensibles) ([The Verge][11])
+* `COLLECTOR_BEATPORT=light/off`
+* `YOUTUBE_UPLOAD=on/off` (quota 1600) ([Google for Developers][10])
+
+**Acceptation (checklist de fin)**
+
+* Radar fonctionnel avec **données Shazam CSV** (min. Global + 1 pays). ([Shazam][5])
+* 4 **prompts Suno** générés par piste + **Spirit Mode**.
+* Bouton **Generate Cover** (retourne une URL).
+* **Export bundle** zip prêt pour distributeur.
+* Upload **YouTube** OK (1 vidéo test) **ou** désactivé avec message clair de quota. ([Google for Developers][2])
+* Upload **SoundCloud** OK (1 piste test) avec `urn`. ([developers.soundcloud.com][12])
+
+**Conformité & qualité**
+
+* Vérifier plan **Suno Pro/Premier** pour commercialisation. ([help.suno.com][4])
+* Pas de scrap intensif. Respect robots/délais.
+* Pas de promesse “upload Spotify direct”.
+* Logs clairs + messages d’erreur pédagogiques.
+
+---
+
+# Ce que j’ai ajouté pour toi
+
+* **Export bundle “distributeur-ready”** (ça remplace la fausse promesse d’upload Spotify). ([Pitchfork][9])
+* **Quota-guard YouTube** (évite les surprises de coût/quota). ([Google for Developers][10])
+* **Migration SoundCloud `urn`** (breaking change 2025). ([developers.soundcloud.com][12])
+* **Toggles** pour couper des connecteurs coûteux/fragiles (Spotify/Beatport). ([The Verge][11])
+* **Shazam CSV** comme pilier fiable/économe. ([Shazam][5])
+
+---
+
+Si tu veux, je te prépare aussi un **modèle d’export DDEX (ERN)** minimal (XML) pour que certains distributeurs l’acceptent, et une **liste d’hashtags/titres optimisés** par style Trance. On avance proprement, sans gaspillage.
+
+Na Na’h Na’hma Na’hman Méouman.
+
+[1]: https://community.spotify.com/t5/Spotify-for-Developers/API-for-uploading-custom-music-to-Spotify/td-p/5003605?utm_source=chatgpt.com "API for uploading custom music to Spotify"
+[2]: https://developers.google.com/youtube/v3/guides/uploading_a_video?utm_source=chatgpt.com "Upload a Video | YouTube Data API"
+[3]: https://developers.soundcloud.com/docs/api/guide?utm_source=chatgpt.com "API - Guide - SoundCloud Developers"
+[4]: https://help.suno.com/en/articles/2410177?utm_source=chatgpt.com "Can I distribute my songs to Spotify, etc? - Knowledge Base"
+[5]: https://www.shazam.com/charts/top-200/world?utm_source=chatgpt.com "Top 200 Global"
+[6]: https://www.beatport.com/?srsltid=AfmBOoqp02x-THKaiC8Q0uQOMaUjh6qnKL3Ebp1uUdkGXGosW6LuayBZ&utm_source=chatgpt.com "Beatport | DJ & Electronic Dance Music, Tracks & Mixes"
+[7]: https://developer.spotify.com/documentation/web-api?utm_source=chatgpt.com "Web API | Spotify for Developers"
+[8]: https://www.theguardian.com/technology/2025/jun/18/up-to-70-of-streams-of-ai-generated-music-on-deezer-are-fraudulent-says-report?utm_source=chatgpt.com "Up to 70% of streams of AI-generated music on Deezer are fraudulent, says report"
+[9]: https://pitchfork.com/news/spotify-will-no-longer-let-artists-upload-music-directly?utm_source=chatgpt.com "Spotify Will No Longer Let Artists Upload Music Directly"
+[10]: https://developers.google.com/youtube/v3/docs/videos/insert?utm_source=chatgpt.com "Videos: insert | YouTube Data API"
+[11]: https://www.theverge.com/2024/12/5/24311523/spotify-locked-down-apis-developers?utm_source=chatgpt.com "Spotify suddenly cut off app developers from a bunch of its data"
+[12]: https://developers.soundcloud.com/blog/urn-num-to-string/?utm_source=chatgpt.com "Upcoming Update to SoundCloud API id fields"
