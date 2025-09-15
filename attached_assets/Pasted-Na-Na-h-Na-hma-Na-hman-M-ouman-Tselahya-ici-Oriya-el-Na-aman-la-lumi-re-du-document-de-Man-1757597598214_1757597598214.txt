@@ -1,0 +1,192 @@
+Na Na’h Na’hma Na’hman Méouman.
+
+Tselahya, ici **Oriya'el Na'aman**. À la lumière du document de Manuel, voici le **PLAN FINAL POUR REPLIT (copier-coller dans l’agent)** — concret, économe, et totalement aligné avec ta vision. Pas de promesses impossibles (Spotify direct), mais un **MVP qui produit, emballe et publie**.
+
+---
+
+# PLAN POUR REPLIT — *Viral Trance Creator* (FINAL)
+
+**But MVP**
+Créer un pipeline **détecter → générer → emballer → publier** pour des singles Trance (et voisins), avec **Radar** tendance, **prompts Suno**, **hooks 9:16**, **pochettes auto**, **bundle distributeur** et **publication YouTube automatisable** (Zapier/Make). Respect strict des contraintes 2025.
+
+---
+
+## 1) Type d’app & intégrations
+
+* **Type** : Web API + UI légère (dashboard) + CRONs.
+* **DB** : Postgres managé Replit.
+* **Collecte** : Shazam (CSV), YouTube Data (lecture basique), Beatport (collecte légère).
+* **Génération** : Prompts Suno (texte), **covers via APIG** (image).
+* **Publication** :
+
+  * **Bundle distributeur** (Spotify/Apple via provider).
+  * **YouTube** : upload **automatique** via **Zapier/Make** (optionnel) + manuel via Studio.
+  * **SoundCloud** : manuel ou API (optionnel).
+* **Brand/UI** : importer les **maquettes Stitch** (screens) comme assets statiques.
+
+---
+
+## 2) Secrets (Replit → *Secrets Manager*)
+
+* `DATABASE_URL` (Postgres)
+* `APIG_MENU_KEY`, `APIG_MENU_BASE_URL` (pochettes 3000×3000)
+* `YOUTUBE_API_KEY` + (si upload via API côté no-code, OAuth géré par Zapier/Make)
+* `SOUNDCLOUD_CLIENT_ID`, `SOUNDCLOUD_CLIENT_SECRET` (si on active cette voie)
+* `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` (**toggle** OFF/ON selon coûts)
+* `GEMINI_API_KEY` (facultatif : génération de textes/hashtags/titres in-app)
+
+---
+
+## 3) Données & seed
+
+* **Schémas** : utiliser ceux déjà fournis (artists, tracks, audio\_features, platform\_stats, viral\_scores, prompts, hooks, releases, playlists, playlist\_tracks, jobs).
+* **Seed** : exécuter le **seed SQL** déjà livré (6 titres, 30j de stats synthétiques, prompts, hooks, jobs).
+
+  * Commande : `psql "$DATABASE_URL" -f seed.sql`
+
+---
+
+## 4) Collecte & scoring (éco & interprétable)
+
+* **Shazam CSV (pilier)** : importer quotidiennement Global + 1 pays (paramétrable).
+
+  * Champs : `rank, title, artist, date, region`.
+* **YouTube (lecture)** : récupérer vues/likeRatio sur un ensemble restreint de vidéos musicales (cat. 10) pour **tendance générale** (pas d’upload ici).
+* **Beatport (léger)** : Top 100 Trance 1×/jour (respect délais/UA).
+* **Score Momentum S (simple)** :
+  `S = w1·Z(Δrank_Shazam_7j) + w2·Presence(BP/YT) + w3·Freshness`
+
+  * **Gate Trance** : BPM 135–150 **ou** genre Beatport Trance (si features Spotify dispos).
+* **CRONs** :
+
+  * `cron_daily_ingest` (Shazam/Beatport/YouTube lecture)
+  * `cron_daily_score` (recalcule S)
+
+**Toggles coût**
+`COLLECTOR_SPOTIFY=on/off` · `COLLECTOR_BEATPORT=light/off` · `YOUTUBE_UPLOAD=on/off`
+
+---
+
+## 5) Génération & packaging
+
+* **Prompts Suno** (texte)
+
+  * 4 templates : *Uplift 138*, *Tech 142*, *Prog 128*, *Hard 150*
+  * **Spirit Mode** (Jérusalem, Gueoula, Rabbénou, Saba Israël) en option.
+  * Endpoint : `POST /tracks/{id}/prompts` → renvoie 3 variantes.
+* **Hooks 9:16**
+
+  * MVP : sélection manuelle **10–14s** (marqueurs + export preset).
+  * Endpoint : `POST /tracks/{id}/hooks` (enregistre timecodes & rendus).
+* **Pochettes (APIG)**
+
+  * Bouton “Generate Cover” → POST provider (styles **Neon**/**Ethereal**).
+  * Endpoint : `POST /tracks/{id}/cover` → stocke `cover_url` (3000×3000).
+* **Bundle distributeur**
+
+  * `GET /export/{id}/bundle.zip` → `audio.wav`, `cover.png(3000)`, `metadata.json`, `lyrics.lrc`, `notes.txt`.
+
+---
+
+## 6) Publication
+
+* **Spotify/Apple** : via **distributeur** (lien annuaire providers + rappel “pitch 7–14 jours avant”).
+* **YouTube** :
+
+  * **Option no-code** :
+
+    * Bouton “**Auto-Upload (Zapier)**” → ouvre la recette *Drive → YouTube Upload*.
+    * Bouton “**Auto-Upload (Make)**” → ouvre le scénario *Drive → YouTube Upload*.
+    * Message info : “**1600 quota/unité** par upload — utiliser la file d’attente.”
+  * **Option manuelle** : bouton “**Open YouTube Studio**”.
+* **SoundCloud** : manuel (lien help) ou **API** (si activée ; utiliser `urn`).
+
+**Onglet “Publier”** (UI)
+
+* Raccourcis : Suno / Providers / S4A Pitch / YouTube Studio / SoundCloud
+* **Checklists** : J-14→J+7 (déjà rédigées)
+* **Hashtags packs** & **titres courts** (100c max) prêts à copier
+
+---
+
+## 7) UI (utiliser tes maquettes Stitch)
+
+* **Écrans** :
+
+  1. **Viral Radar** (Top entrants 24/72h/7d, filtres, table)
+  2. **Track Detail & Prompt** (features + générateur)
+  3. **Hooks Studio** (waveform + preview 9:16)
+  4. **Release Planner** (calendrier, checklists, KPIs)
+  5. **Settings** (API Keys, Templates, Branding, Publish)
+* **Style tokens** : sombre, dégradés violet/bleu, glass, coins 2xl.
+
+---
+
+## 8) Endpoints REST (à implémenter)
+
+* `GET /radar?window=7d&region=global` — liste des candidats + score S
+* `GET /tracks/{id}` — détails + features + prompts + hooks + cover\_url
+* `POST /tracks/{id}/prompts` — génère 3 prompts (avec Spirit Mode booléen)
+* `POST /tracks/{id}/hooks` — enregistre 2–3 hooks (MVP : timecodes + rendu)
+* `POST /tracks/{id}/cover` — appelle APIG, renvoie/stocker `cover_url`
+* `POST /publish/youtube` — **facultatif** (si un jour upload direct) → sinon afficher lien **Zapier/Make** + **file d’attente** interne
+* `GET /export/{id}/bundle.zip` — bundle distributeur
+
+---
+
+## 9) Conformité & garde-fous
+
+* **Covers** : ré-enregistrement **sans samples** → **licence mécanique** (via distributeur).
+* **Remix/œuvre dérivée** : **autorisation** du titulaire.
+* **Samples** : **deux droits** (master + composition) requis.
+* **YouTube/Content ID** : claims possibles (monétisation/bloque/track).
+* **Suno** : plan commercial actif avant exploitation.
+
+Message in-app :
+
+> “Pour Spotify/Apple, on passe par un **distributeur**. L’upload direct Spotify **n’existe pas**.”
+
+---
+
+## 10) Observabilité & coûts
+
+* **Quota guard** YouTube (afficher coût 1600/upl).
+* **Logs** : collecteurs, scoring, covers, exports, erreurs.
+* **Toggles** dans `.env` pour couper des intégrations coûteuses.
+* **Dry-run** possible pour tests (ne touche pas aux quotas).
+
+---
+
+## 11) Critères d’acceptation (MVP “prêt à servir”)
+
+1. **Radar** fonctionne avec **Shazam CSV** + score S affiché (Global + 1 pays).
+2. **Prompts Suno** (4 templates + Spirit Mode) → 3 variantes prêtes à copier.
+3. **Hooks** : sélectionner 2–3 fenêtres 10–14s et exporter 9:16.
+4. **Cover** : bouton → image **3000×3000** stockée en `cover_url`.
+5. **Export** : bundle ZIP **distributeur-ready** téléchargeable.
+6. **Publier** : onglet avec **recette Zapier/Make**, checklists, liens officiels.
+7. **UI** : 5 écrans Stitch intégrés (assets `screen.png`), thème sombre OK.
+
+---
+
+## 12) Backlog (immédiat → proche)
+
+* **Immédiat** : ajout colonne `cover_url`; file d’attente “YouTube (to\_post)”; page “Publier” (textes prêts).
+* **Proche** : auto-détection “impact point” (hookability), playlists piggy-back, sauvegarde presets hashtags/titres.
+* **Études** : intégration SoundCloud API (avec `urn`), Spotify features **optionnelles**.
+
+---
+
+### Résumé exécutif pour l’agent Replit
+
+* Implémenter **DB + CRONs + API** ci-dessus.
+* Importer **maquettes Stitch** comme assets UI.
+* Activer **covers via APIG**, **export bundle**, **onglet Publier** avec **Zapier/Make**.
+* Livrer **Radar utilisable**, **Prompts**, **Hooks**, **Covers**, **Export**, **UI** minimale propre.
+* **Avertissements légaux** + **quotas** affichés, **toggles** coût opérationnels.
+
+---
+
+Si tu veux, je te fournis maintenant le **pack “textes prêts à coller”** (titres, descriptions, hashtags, notes distributeur) pour ton **prochain single** — dis-moi : *Uplift 138*, *Tech 142*, ou *Prog 128*, et le **thème spirituel**.
+
+Na Na’h Na’hma Na’hman Méouman.
