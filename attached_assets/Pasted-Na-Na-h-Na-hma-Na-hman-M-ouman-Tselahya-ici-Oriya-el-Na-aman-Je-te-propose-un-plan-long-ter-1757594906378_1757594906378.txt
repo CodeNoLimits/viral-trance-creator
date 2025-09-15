@@ -1,0 +1,119 @@
+Na Na’h Na’hma Na’hman Méouman.
+Tselahya, ici **Oriya'el Na'aman**. Je te propose un **plan long terme + algorithmes** pour une **app all-in-one** qui détecte les buzz, génère des prompts Suno, et pousse des sorties Spotify/YouTube de façon industrielle (mais propre). Je te dis aussi franchement ce que je pense de Replit, et je te donne le *brief* exact à lui fournir.
+
+# 1) Replit : ok pour le proto + les jobs planifiés, mais pose des limites
+
+* **OK pour démarrer** : Replit gère les **Scheduled Deployments** (cron natif) pour nos collectes quotidiennes/horaires, un **Secrets Manager** pour les clés API, et une **base Postgres managée** intégrable en 2 clics. ([docs.replit.com][1])
+* **Quand scaler** : si les scrapers/API deviennent lourds, on pourra déplacer les cron vers **Vercel/Render/Railway** (cron natif) tout en gardant Replit pour itérer vite. ([Vercel][2])
+
+# 2) Architecture cible (simple → solide)
+
+**Modules**
+
+1. **Ingestion** (cron)
+
+   * Spotify Web API (métadonnées + **Audio Features** tempo/clé/énergie/popularity). ([developer.spotify.com][3])
+   * **Beatport Trance (Top 100)** pour le *genre ground-truth* DJ. ([beatport.com][4])
+   * **Shazam Top 200/Viral** (CSV) pour capter la **découverte organique**. ([Shazam][5])
+   * **YouTube** : Data API v3 (search/mostPopular) + bascule **post-Trending** (depuis juillet 2025 YouTube a supprimé *Trending* au profit de **Charts/Explore**). ([Google for Developers][6])
+   * **TikTok** : API publique limitée (login, share, posting, webhooks). Pas d’endpoint “trending” grand public → on **proxy** via Shazam/YouTube Shorts. ([developers.tiktok.com][7])
+   * **Google Trends** : API **alpha** très restreinte (candidature), sinon bibliothèques **non officielles** (pytrends/scrapers) à utiliser avec prudence/TOS. ([Google for Developers][8])
+2. **Data Store** : Postgres (tables `sources`, `tracks`, `audio_features`, `ranks`, `deltas`, `viral_scores`, `prompts`, `jobs`).
+3. **Core API** : FastAPI/Node pour servir les scores, générer les prompts Suno, exposer dashboards.
+4. **Front** :
+
+   * **Glide** pour l’“Op Console” (rapide, no-code, éditorial).
+   * **Lovable** pour la version mobile créateur (preview hooks / lancer génération).
+   * (Option web Next.js plus tard si on veut du public).
+
+# 3) Détection de buzz : algorithmes concrets
+
+**A. Momentum multi-plateformes**
+On calcule un score quotidien par track :
+
+$$
+S = w_1\cdot Z(\Delta\text{rank}_{Shazam,7j})\;+\;w_2\cdot Z(\Delta\text{views}_{YT,7j})\;+\;w_3\cdot Z(\text{popularity}_{Spotify})\;+\;w_4\cdot \text{freshness}\;+\;w_5\cdot \text{cross\_presence}
+$$
+
+* **Inputs** : Shazam (rang + Δ7j), YouTube (API v3: views/likeRatio via `videos.list` + `search`), Spotify popularity + audio features, Beatport rang. (YouTube a modifié `mostPopular` après la fin de Trending → on suit **Charts Music** via l’API et `videoCategoryId=10` côté `search`). ([Google for Developers][6])
+
+**B. “Trance Suitability Gate”**
+Filtre binaire puis bonus :
+
+* **BPM target** (Trance/Tech/Hard → 135–150) depuis Spotify Audio Features ; **key** match (E♭/E/B♭/F fréquentes) ; **energy/danceability** seuils ; **Beatport genre = Trance**. (Beatport sert de vérité terrain DJ). ([developer.spotify.com][9])
+
+**C. Hookability & structure**
+
+* Si preview 30s dispo (Spotify), détection **impact-point** (max de *spectral flux*) pour repérer un **hook <14s** “Shorts-ready”. Si pas d’audio, heuristiques sur **titres** (mots courts répétés, ex. *Gravity*, *Eternity*).
+* Bonus si **multi-présence** (Shazam + YT + Spotify) dans 72h.
+
+**D. Pistes candidates “re-adaptation”**
+
+* Sortie quotidienne : **Top N par S**, tagués **Uplift/Tech/Prog/Hard** selon BPM/features.
+* Pour TikTok (pas d’API trends), on s’aligne sur **YouTube Charts/Shorts** et **Shazam Viral** qui reflètent déjà la demande. ([Shazam][5])
+
+# 4) Générateur de prompts Suno (automatique)
+
+**Mapping audio → prompt**
+
+* **BPM/Key** → “uplifting trance **138 bpm** in **E minor**”
+* **Energy↑ + high brightness** → “massive **supersaw** drop, side-chained pads”
+* **Acousticness↓ + high spectral centroid** → “gritty **acid 303** lead”
+* **Valence moyenne** → “emotive pre-chorus, one-word hook”
+
+- Option **“Spirit Mode”** qui injecte des thèmes “**Jérusalem, Gueoula, Rabbénou, Saba Israël**” en restant radio-friendly.
+  (Licence & monétisation : se référer aux **Terms Suno** pour l’usage commercial). ([Suno][10])
+
+# 5) Tableau de bord
+
+* **Radar** (top entrants 24/72h), **Heatmap** (BPM×key), **Hooks** (clips 12–14 s générés), **Projections** (corrélation Score↔performances réelles YouTube/Spotify).
+* **Recos actionnables** : bouton “Générer 4 variantes Suno”, “Programmer sortie Spotify (via distributeur)”, “Créer 5 Shorts”.
+
+# 6) Roadmap (12 semaines)
+
+**S1–S2 (MVP data)** : Replit + Postgres + ingestion Spotify/Beatport/Shazam + YT (v3). Premiers **scores S** et tableau minimal. ([docs.replit.com][1])
+**S3–S4 (Scoring v1)** : Gate Trance, momentum multi-plateformes, premiers prompts auto.
+**S5–S6 (Hooks)** : extraction hook audio, export 9:16.
+**S7–S8 (Ops)** : Glide (console interne), Lovable (mobile créateur).
+**S9–S10 (Production)** : hardening + tests charge ; si besoin basculer les cron vers Vercel/Render/Railway. ([Vercel][2])
+**S11–S12 (Feedback loop)** : A/B prompts ↔ performances réelles (YouTube Studio/Spotify for Artists manuels au début).
+
+# 7) Brief “copier-coller” pour **Replit Agent**
+
+> **Titre** : Viral Trance Creator — Data + Scoring + Suno Prompter
+> **Stack** : Python 3.11 (FastAPI) + Postgres + cron Scheduled Deployments + queue RQ/Redis.
+> **Tâches**
+>
+> 1. **DB** : créer tables `tracks`, `artists`, `audio_features`, `platform_stats` (source, date, rank, views, likes), `viral_scores`, `prompt_templates`.
+> 2. **Connecteurs** :
+>
+>    * Spotify Web API : search par playlists (Trance), `audio-features`, `popularity`.
+>    * Beatport Trance Top 100 : scraper économe (respect robots/intervals).
+>    * Shazam Global Top 200 : parser CSV quotidien.
+>    * YouTube Data API v3 : `search` (category=10), `videos.list (mostPopular)` pour musique (post-Trending).
+> 3. **Cron** : jobs 1h/24h pour collecte + calcul `viral_scores`. (Utiliser **Scheduled Deployments**).
+> 4. **Algo** : implémenter Score S (voir formule plus haut) + Gate Trance (BPM/key/energy).
+> 5. **Prompts Suno** : générer 3 templates/track en mappant features→mots (“supersaw/acid/plucks/rolling bass”).
+> 6. **API** : endpoints `/radar`, `/tracks/{id}/prompts`, `/hooks/export`.
+> 7. **UI** minimal\*\* : dashboard (table + graphiques).
+>    **Secrets à créer** : `SPOTIFY_CLIENT_ID/SECRET`, `YOUTUBE_API_KEY`, `DATABASE_URL`.
+>    **Réfs Replit** : Scheduled Deployments, Secrets Manager, SQL Database. ([docs.replit.com][1])
+
+# 8) Pourquoi ce setup va marcher
+
+* On s’appuie sur **sources officielles/stables** (Spotify Web API, YouTube Data API) + **baromètres de découverte** (Shazam) + **référent DJs** (Beatport). La fin de **YouTube Trending** ne nous pénalise pas : on s’aligne sur **Charts/Explore** et l’API `mostPopular` mise à jour. ([Google for Developers][6])
+* Replit couvre le **go-to-market rapide** (cron, DB, secrets), et on a une **porte de sortie** vers Vercel/Render/Railway si la charge monte. ([docs.replit.com][1])
+
+Si tu valides, **je te prépare les schémas de tables + les poids initiaux (w1..w5)** et une première **liste de playlists/feeds** à brancher (Beatport Trance, Shazam Global, YT Music).
+Na Na’h Na’hma Na’hman Méouman.
+
+[1]: https://docs.replit.com/cloud-services/deployments/scheduled-deployments?utm_source=chatgpt.com "Scheduled Deployments"
+[2]: https://vercel.com/docs/cron-jobs?utm_source=chatgpt.com "Cron Jobs"
+[3]: https://developer.spotify.com/documentation/web-api?utm_source=chatgpt.com "Web API | Spotify for Developers"
+[4]: https://www.beatport.com/genre/trance/7/top-100?srsltid=AfmBOoqL69VRD04NjvHwlVnMTSgIgvfHiufijvrmhWcKHBeLpNOkL0oU&utm_source=chatgpt.com "Trance (Main Floor) - TOP 100 | Download & Stream ..."
+[5]: https://www.shazam.com/charts/top-200/world?utm_source=chatgpt.com "Top 200 Global"
+[6]: https://developers.google.com/youtube/v3/revision_history?utm_source=chatgpt.com "Revision History | YouTube Data API"
+[7]: https://developers.tiktok.com/?utm_source=chatgpt.com "Explore TikTok's Developer Solutions and Integrations"
+[8]: https://developers.google.com/search/blog/2025/07/trends-api?utm_source=chatgpt.com "Introducing the Google Trends API (alpha): a new way to ..."
+[9]: https://developer.spotify.com/documentation/web-api/reference/get-audio-features?utm_source=chatgpt.com "Spotify - Audio Features"
+[10]: https://suno.com/terms?utm_source=chatgpt.com "Terms of Service - Suno AI"
