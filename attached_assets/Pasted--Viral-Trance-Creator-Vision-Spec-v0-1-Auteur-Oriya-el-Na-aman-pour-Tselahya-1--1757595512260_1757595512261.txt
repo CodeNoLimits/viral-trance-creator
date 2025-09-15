@@ -1,0 +1,353 @@
+# Viral Trance Creator — Vision & Spec v0.1
+
+*Auteur : Oriya'el Na'aman — pour Tselahya*
+
+---
+
+## 1) Vision globale
+
+**But** : bâtir une application “all‑in‑one” qui capte les tendances musicales (focus Trance), score le potentiel viral multi‑plateformes, génère des prompts Suno optimisés, extrait des hooks Shorts et orchestre les sorties Spotify/YouTube — avec imagerie (pochette) auto.
+
+**Ambition** : devenir le copilote créatif‑opérationnel pour produire des hits répétés, en intégrant la mission spirituelle (Jérusalem, Gueoula, Rabbénou, Saba Israël) sans sacrifier l’accessibilité radio/playlist.
+
+**Utilisateurs cibles** :
+
+* Toi (Tselahya) comme producteur‑éditeur solo.
+* Collaborateurs d’édition/distribution.
+* À terme, d’autres créateurs (multi‑tenant).
+
+**Piliers produit** :
+
+1. **Data & Momentum** : signaux Spotify/YouTube/Beatport/Shazam + algos simples et interprétables.
+2. **Génération** : prompts Suno mappés aux features audio.
+3. **Packaging** : hooks 9:16, pochette auto (API image), habillages.
+4. **Ops** : calendrier de sorties, checklists, projections.
+5. **Conformité** : licences, usage commercial Suno, YPP, covers.
+
+---
+
+## 2) Architecture (vue d’ensemble)
+
+* **Ingestion** (cron) → **Stockage** (Postgres) → **Scoring** → **API** (FastAPI/Node) → **Front** (Glide/Lovable pour v1) → **Jobs** (rendus hooks/covers).
+* Déploiement v1 sur Replit (cron + secrets + DB managée). Scalabilité possible plus tard.
+
+---
+
+## 3) Algorithmes (v1, interprétables)
+
+**Score de momentum quotidien** $S$ :
+
+```
+S = w1·Z(Δrank_Shazam_7j) + w2·Z(views_YT_7j) + w3·Popularity_Spotify + w4·Freshness + w5·CrossPresence
+```
+
+* **Gate “Trance”** : passage si BPM ∈ \[135,150], key fréquentes (E♭/E/B♭/F), energy/danceability seuils, genre Beatport.
+* **Hookability** : estimation d’un impact point (max de flux spectral) → propositions de hooks 10–14 s.
+* **Sorties** : dashboard Radar (Top entrants 24/72h/7j), fiches pistes, prompts auto.
+
+> Poids initiaux recommandés : `w1=0.35, w2=0.25, w3=0.20, w4=0.10, w5=0.10`. À affiner selon corrélation réelle.
+
+---
+
+## 4) Modèle de données (rappel)
+
+Tables : `artists`, `tracks`, `audio_features`, `platform_stats`, `viral_scores`, `prompts`, `hooks`, `releases`, `playlists`, `playlist_tracks`, `jobs`.
+
+> Indices utiles déjà prévus (titre, dates, combinaisons plateforme/date, etc.).
+
+---
+
+## 5) **Script de seed SQL** (copier/coller dans Replit → Postgres)
+
+> Hypothèse : le schéma de tables du tour précédent est déjà créé. Ce seed ajoute des artistes, 6 titres, des features, et 30 jours de `platform_stats` synthétiques par plateforme.
+
+```sql
+-- Seed v0.1 — artistes
+WITH a1 AS (
+  INSERT INTO artists(name, country) VALUES
+  ('Tselahya', 'IL'),
+  ('Oriya\'el Na\'aman', 'IL'),
+  ('Nova Pulse', 'NL'),
+  ('Skyline Echo', 'DE')
+  RETURNING id, name
+),
+-- Titres (6)
+ t AS (
+  INSERT INTO tracks(title, artist_id, release_date, tags)
+  SELECT 'Eternity in Jerusalem', (SELECT id FROM a1 WHERE name='Tselahya'), CURRENT_DATE - 20, '{trance,uplift}'::text[]
+  UNION ALL SELECT 'Gravity of Light', (SELECT id FROM a1 WHERE name='Tselahya'), CURRENT_DATE - 13, '{trance,tech}'
+  UNION ALL SELECT 'Higher Again', (SELECT id FROM a1 WHERE name='Oriya''el Na''aman'), CURRENT_DATE - 8, '{trance,prog}'
+  UNION ALL SELECT 'Rave of Freedom', (SELECT id FROM a1 WHERE name='Nova Pulse'), CURRENT_DATE - 30, '{trance,hard}'
+  UNION ALL SELECT 'Echoes of Geulah', (SELECT id FROM a1 WHERE name='Skyline Echo'), CURRENT_DATE - 25, '{trance,uplift}'
+  UNION ALL SELECT 'Light over Zion', (SELECT id FROM a1 WHERE name='Tselahya'), CURRENT_DATE - 3, '{trance,uplift}'
+  RETURNING id, title
+)
+-- Caractéristiques audio (1 enregistrement par track)
+INSERT INTO audio_features(track_id, bpm, key_index, mode_major, energy, danceability, valence, acousticness, instrumentalness, liveness, speechiness, brightness)
+SELECT id,
+  CASE title
+    WHEN 'Eternity in Jerusalem' THEN 138
+    WHEN 'Gravity of Light' THEN 142
+    WHEN 'Higher Again' THEN 128
+    WHEN 'Rave of Freedom' THEN 150
+    WHEN 'Echoes of Geulah' THEN 136
+    WHEN 'Light over Zion' THEN 138
+  END::numeric,
+  CASE title
+    WHEN 'Eternity in Jerusalem' THEN 4  -- E
+    WHEN 'Gravity of Light' THEN 10 -- Bb
+    WHEN 'Higher Again' THEN 2  -- D
+    WHEN 'Rave of Freedom' THEN 7  -- G
+    WHEN 'Echoes of Geulah' THEN 5  -- F
+    WHEN 'Light over Zion' THEN 4  -- E
+  END,
+  FALSE,
+  CASE WHEN title IN ('Rave of Freedom','Gravity of Light') THEN 0.92 ELSE 0.84 END,
+  CASE WHEN title IN ('Higher Again') THEN 0.71 ELSE 0.64 END,
+  0.42,
+  0.02,
+  CASE WHEN title IN ('Higher Again') THEN 0.15 ELSE 0.05 END,
+  0.06,
+  0.04,
+  CASE WHEN title IN ('Gravity of Light','Rave of Freedom') THEN 0.88 ELSE 0.72 END
+FROM t;
+
+-- Playlists (références piggyback)
+INSERT INTO playlists(platform, name, external_id, region, url) VALUES
+  ('spotify','Best New Trance','pl_sp_bestnewtrance_global','global','https://example/spotify/bestnewtrance'),
+  ('beatport','Trance Top 100','bp_trance_top_100','global','https://example/beatport/trance-top-100');
+
+-- Associer quelques titres aux playlists
+WITH p AS (
+  SELECT id FROM playlists WHERE external_id IN ('pl_sp_bestnewtrance_global','bp_trance_top_100')
+), tt AS (
+  SELECT id FROM tracks WHERE title IN ('Eternity in Jerusalem','Gravity of Light','Higher Again','Rave of Freedom','Echoes of Geulah','Light over Zion')
+)
+INSERT INTO playlist_tracks(playlist_id, track_id, position, added_at)
+SELECT (SELECT id FROM playlists WHERE external_id='pl_sp_bestnewtrance_global'),
+       (SELECT id FROM tracks WHERE title='Eternity in Jerusalem'), 5, now()-interval '10 days'
+UNION ALL SELECT (SELECT id FROM playlists WHERE external_id='pl_sp_bestnewtrance_global'), (SELECT id FROM tracks WHERE title='Light over Zion'), 18, now()-interval '2 days'
+UNION ALL SELECT (SELECT id FROM playlists WHERE external_id='bp_trance_top_100'), (SELECT id FROM tracks WHERE title='Gravity of Light'), 37, now()-interval '7 days';
+
+-- Prompts initiaux (templates)
+INSERT INTO prompts(track_id, template_name, variant_label, prompt_text, generated_from)
+SELECT id, 'uplifting_138_em', 'v1',
+  'uplifting trance 138 bpm in E minor, soaring female vocal, one-word hook ("Eternity"), massive supersaw drop, side-chained pads, airy plucks, clean modern mix, radio edit 3:00',
+  '{"bpm":138,"key":"E minor","style":"uplift"}'::jsonb
+FROM tracks WHERE title='Eternity in Jerusalem'
+UNION ALL
+SELECT id, 'tech_142_bbm', 'v1',
+  'tech trance 142 bpm in Bb minor, gritty acid 303 lead, heavy kick & rolling bass, hypnotic chant vox, tension risers, hard-hitting drop, 2:50',
+  '{"bpm":142,"key":"Bb minor","style":"tech"}'
+FROM tracks WHERE title='Gravity of Light';
+
+-- Hooks placeholders
+INSERT INTO hooks(track_id, start_ms, end_ms, file_uri, notes)
+SELECT id, 45000, 59000, NULL, 'Hook 1 — pre-chorus to drop'
+FROM tracks WHERE title IN ('Eternity in Jerusalem','Gravity of Light','Light over Zion');
+
+-- Générer 30 jours de stats synthétiques par plateforme (YouTube/Shazam/Spotify/Beatport)
+DO $$
+DECLARE
+  d DATE;
+  tid BIGINT;
+  base_views INT;
+  base_streams INT;
+  rank_shz INT;
+  rank_bp INT;
+BEGIN
+  FOR tid IN SELECT id FROM tracks LOOP
+    base_views := 8000 + (random()*4000)::int;       -- base YT
+    base_streams := 3000 + (random()*2000)::int;     -- base Spotify
+    rank_shz := 180 - (random()*50)::int;            -- Shazam rang global (plus petit = mieux)
+    rank_bp := 90 - (random()*40)::int;              -- Beatport Trance rang
+
+    FOR d IN SELECT generate_series(CURRENT_DATE - 29, CURRENT_DATE, interval '1 day')::date LOOP
+      -- YouTube views (croissance légère)
+      INSERT INTO platform_stats(track_id, platform, stat_date, chart_type, region, views, likes, comments, extra)
+      VALUES (tid, 'youtube', d, 'mostPopular', 'global', base_views + (EXTRACT(day FROM d - (CURRENT_DATE - 29))::int * (50 + random()*80)::int),
+              (200 + random()*60)::int, (20 + random()*10)::int, '{}'::jsonb);
+
+      -- Spotify streams + popularity approx
+      INSERT INTO platform_stats(track_id, platform, stat_date, chart_type, region, streams, saves, playlists, extra)
+      VALUES (tid, 'spotify', d, 'chart', 'global', base_streams + (EXTRACT(day FROM d - (CURRENT_DATE - 29))::int * (30 + random()*70)::int),
+              (20 + random()*10)::int, (5 + random()*4)::int,
+              jsonb_build_object('popularity', 40 + (EXTRACT(day FROM d - (CURRENT_DATE - 29))::int % 20)));
+
+      -- Shazam rank (tend vers le haut = rang diminue)
+      INSERT INTO platform_stats(track_id, platform, stat_date, chart_type, region, rank)
+      VALUES (tid, 'shazam', d, 'top', 'global', GREATEST(1, rank_shz - (EXTRACT(day FROM d - (CURRENT_DATE - 29))::int / 3))::int);
+
+      -- Beatport Trance (rang légèrement meilleur)
+      INSERT INTO platform_stats(track_id, platform, stat_date, chart_type, region, rank)
+      VALUES (tid, 'beatport', d, 'trance_top_100', 'global', GREATEST(1, rank_bp - (EXTRACT(day FROM d - (CURRENT_DATE - 29))::int / 4))::int);
+    END LOOP;
+  END LOOP;
+END$$;
+
+-- Scores journaliers init (placeholder : on stocke les dernières métriques simplifiées)
+INSERT INTO viral_scores(track_id, score_date, score_overall, subscores, rationale)
+SELECT t.id, CURRENT_DATE,
+  65 + (random()*25),
+  jsonb_build_object('z_yt_views_7', 1.2, 'delta_rank_shazam_7', 4, 'spotify_pop', 55, 'freshness', 0.8, 'cross', 1),
+  'Seed synthetic score — to be replaced by algo v1'
+FROM tracks t;
+
+-- Job queue exemples
+INSERT INTO jobs(job_type, payload, status)
+VALUES
+  ('ingest', '{"sources":["spotify","youtube","beatport","shazam"]}', 'queued'),
+  ('score', '{"mode":"daily"}', 'queued'),
+  ('render_cover', '{"track_id": (SELECT id FROM tracks WHERE title=''Light over Zion'') }', 'queued');
+```
+
+**Exécution** :
+
+* Replit → connecter Postgres → créer un fichier `seed.sql` → exécuter `psql "$DATABASE_URL" -f seed.sql` ou coller dans un client SQL.
+
+---
+
+## 6) Intégration “pochette auto” via **API d’images (APIG menu)**
+
+> Objectif : après génération d’un track, déclencher un job `render_cover` qui appelle l’API externe avec une **clé** déjà stockée dans Replit Secrets. On enregistre l’URL de la pochette et on la lie au track.
+
+### Variables d’environnement (Replit → *Secrets*)
+
+* `APIG_MENU_KEY` — **clé** fournie
+* `APIG_MENU_BASE_URL` — ex. `https://your-image-provider.example/v1/images` (remplacer par l’URL réelle)
+* `ASSET_BUCKET_BASE` — ex. `https://cdn.yourdomain.com/covers/` (si on recopie l’image)
+
+### Gabarits de prompts “covers”
+
+* **Neon Trance** : *“neon trance album cover, symmetrical geometric shapes, glowing violet/blue gradients, subtle holy light aura, clean sans-serif title: {title}, 3000x3000, high detail”*
+* **Ethereal Uplift** : *“ethereal uplifting trance cover, sunrise over Jerusalem silhouette, soft bokeh lights, airy halos, supersaw energy, sans-serif condensed typography: {title}, 3000x3000”*
+
+### Pseudo‑workflow
+
+1. Le backend crée un **job** `render_cover` avec `{track_id, style}`.
+2. Le **worker** lit le job → génère un prompt + payload → appelle l’API (clé `APIG_MENU_KEY`).
+3. Réception (URL/base64) → sauvegarde fichier (optionnel) → mise à jour `tracks.cover_url` (ajouter la colonne si souhaité) et ajout dans `releases.platform_links` si besoin.
+
+### Exemple **Node (TypeScript)**
+
+```ts
+// utils/covers.ts
+export type CoverStyle = 'neon' | 'ethereal';
+
+export function buildCoverPrompt(title: string, style: CoverStyle, mood?: string, bpm?: number, key?: string) {
+  const base = style === 'neon'
+    ? `neon trance album cover, symmetrical geometric shapes, glowing violet/blue gradients, subtle holy light aura, clean sans-serif title: ${title}`
+    : `ethereal uplifting trance cover, sunrise over Jerusalem silhouette, soft bokeh lights, airy halos, condensed sans-serif title: ${title}`;
+  const extras = [mood && `mood: ${mood}`, bpm && `bpm ${bpm}`, key && `${key}`].filter(Boolean).join(', ');
+  return `${base}${extras ? ', ' + extras : ''}, 3000x3000, high detail`;
+}
+
+export async function generateCover(trackId: number, title: string, style: CoverStyle = 'neon') {
+  const apiKey = process.env.APIG_MENU_KEY!;
+  const baseUrl = process.env.APIG_MENU_BASE_URL || 'https://your-image-provider.example/v1/images';
+  const prompt = buildCoverPrompt(title, style);
+
+  const res = await fetch(baseUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ prompt, width: 3000, height: 3000, format: 'png' })
+  });
+  if (!res.ok) throw new Error(`APIG menu error ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  const imageUrl = data.url || data.result?.url; // selon le provider
+
+  // TODO: enregistrer en DB (ajouter colonne cover_url si absente)
+  --
+  -- UPDATE tracks SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('cover_url', imageUrl)
+  -- WHERE id = trackId;
+
+  return imageUrl;
+}
+```
+
+### Exemple **Python (FastAPI worker)**
+
+```python
+# workers/covers.py
+import os, requests
+
+def build_cover_prompt(title: str, style: str = 'neon', mood: str | None = None, bpm: int | None = None, key: str | None = None):
+    if style == 'ethereal':
+        base = f"ethereal uplifting trance cover, sunrise over Jerusalem silhouette, soft bokeh lights, airy halos, condensed sans-serif title: {title}"
+    else:
+        base = f"neon trance album cover, symmetrical geometric shapes, glowing violet/blue gradients, subtle holy light aura, clean sans-serif title: {title}"
+    extras = ", ".join([x for x in [f"mood: {mood}" if mood else None, f"bpm {bpm}" if bpm else None, key] if x])
+    return f"{base}{', ' + extras if extras else ''}, 3000x3000, high detail"
+
+
+def generate_cover(track_id: int, title: str, style: str = 'neon') -> str:
+    api_key = os.environ['APIG_MENU_KEY']
+    base_url = os.getenv('APIG_MENU_BASE_URL', 'https://your-image-provider.example/v1/images')
+    prompt = build_cover_prompt(title, style)
+    payload = {"prompt": prompt, "width": 3000, "height": 3000, "format": "png"}
+    resp = requests.post(base_url, json=payload, headers={"Authorization": f"Bearer {api_key}"}, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    image_url = data.get('url') or data.get('result', {}).get('url')
+    # TODO: update DB with image_url
+    return image_url
+```
+
+> **Note** : l’URL d’API et la forme exacte du JSON dépendent du provider. Les fonctions ci‑dessus sont des patrons — il suffit d’ajuster `base_url`, le schéma du payload et la lecture de la réponse. La clé `APIG_MENU_KEY` déjà fournie dans Replit suffira.
+
+---
+
+## 7) Endpoints API (proposition v1)
+
+* `GET /radar?window=7d&region=global` → top tracks + score S.
+* `GET /tracks/{id}` → détails + features + prompts + hooks.
+* `POST /tracks/{id}/prompts/generate` → 3 variantes.
+* `POST /tracks/{id}/hooks` → calcule 3 hooks et rendus.
+* `POST /tracks/{id}/cover` → lance `generateCover` (style).
+* `POST /score/recompute` → recalcule S pour un intervalle.
+
+---
+
+## 8) Roadmap & jalons
+
+* **S1–S2** : ingestion + seed + dashboard minimal.
+* **S3–S4** : scoring v1 + générateur prompts.
+* **S5–S6** : hooks studio + cover API.
+* **S7–S8** : planner sorties + checklists + QA.
+
+**KPIs** : précision du top‑N (corrélation score ↔ perfs), temps de génération (<30 s), taux de complétion des checklists, 1er single live.
+
+---
+
+## 9) Conformité & éthique
+
+* Usage commercial Suno : s’assurer du bon plan (Pro/Premier) avant exploitation.
+* Covers : respecter la mécanique/licensing (pas de sampling audio original).
+* YouTube : éviter le contenu perçu comme « inauthentique » (apporter une interprétation, making‑of, brand).
+
+---
+
+## 10) Branding & esprit
+
+* Thème sombre, dégradés violet/bleu, cartes glassy, typographie sans‑serif condensée.
+* Mode « Spirit » injectant subtilement Jérusalem/Gueoula/Rabbénou/Saba Israël dans les lyrics/visuels.
+
+---
+
+## 11) Prompts **Stitch** (rappel condensé)
+
+* **Brief global** + 5 écrans : Dashboard / Track Detail / Hooks Studio / Release Planner / Settings.
+* Variantes "Neon" et "Calm".
+* 6 hero shots marketing (desktop + mobile). Export Figma + HTML/CSS.
+
+---
+
+## 12) Étapes suivantes
+
+1. Exécuter le **seed SQL**.
+2. Brancher les secrets (Spotify/YT/Shazam/Beatport + `APIG_MENU_KEY`).
+3. Implémenter les jobs `ingest`, `score`, `render_cover` (workers simples).
+4. Déployer le dashboard minimal et tester la chaîne de bout en bout.
